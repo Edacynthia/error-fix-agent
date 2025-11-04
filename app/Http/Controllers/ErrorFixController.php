@@ -34,6 +34,7 @@ class ErrorFixController extends Controller
             if ($errorText === '') {
                 return $fromTelex
                     ? response("⚠️ Send me an error message to analyze.", 200)
+                        ->header('Content-Type', 'text/plain')
                     : response()->json(['error' => 'No error text provided.'], 400);
             }
 
@@ -56,18 +57,19 @@ class ErrorFixController extends Controller
 "👋 Hello! I am *ErrorFixer*.
 
 Send me *any code error* and I will:
-• Detect the language
-• Identify the error
-• Explain the cause
-• Provide the correct fix
+- Detect the language
+- Identify the error
+- Explain the cause
+- Provide the correct fix
 
 Example:
 ```
 PHP Fatal error: Call to undefined method User::fullname()
 ```";
 
-                    return $fromTelex
+                   return $fromTelex
                         ? response($reply, 200)
+                            ->header('Content-Type', 'text/plain')
                         : response()->json(['message' => strip_tags($reply)], 200);
                 }
             }
@@ -76,6 +78,7 @@ PHP Fatal error: Call to undefined method User::fullname()
             if ($this->containsMaliciousCode($cleanText)) {
                 return $fromTelex
                     ? response("❌ Unsafe code detected. Try again.", 200)
+                        ->header('Content-Type', 'text/plain')
                     : response()->json(['error' => 'Malicious content detected.'], 400);
             }
 
@@ -83,6 +86,7 @@ PHP Fatal error: Call to undefined method User::fullname()
             if ($this->isNonMeaningful($cleanText)) {
                 return $fromTelex
                     ? response("⚠️ Please send a real error message.", 200)
+                        ->header('Content-Type', 'text/plain')
                     : response()->json(['error' => 'Input too short or unclear.'], 422);
             }
 
@@ -97,6 +101,7 @@ PHP Fatal error: Call to undefined method User::fullname()
             if (!$decoded) {
                 return $fromTelex
                     ? response("❗ I couldn't understand the error.", 200)
+                        ->header('Content-Type', 'text/plain')
                     : response()->json(['error' => 'Invalid AI response.'], 502);
             }
 
@@ -117,7 +122,8 @@ PHP Fatal error: Call to undefined method User::fullname()
 📌 Notes:
 {$decoded['notes']}";
 
-                return response($plain, 200);
+                return response($plain, 200)
+                    ->header('Content-Type', 'text/plain');
             }
 
             // ✅ Postman gets JSON
@@ -128,6 +134,7 @@ PHP Fatal error: Call to undefined method User::fullname()
 
             return $fromTelex
                 ? response("❗ Server error. Try again later.", 200)
+                    ->header('Content-Type', 'text/plain')
                 : response()->json(['error' => 'Server error.'], 500);
         }
     }
