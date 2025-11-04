@@ -21,27 +21,37 @@ class ErrorFixController extends Controller
                 return response()->json(['error' => 'No error text provided.'], 400);
             }
 
-            // ✅ Convert to lowercase
-            $lower = strtolower(trim($errorText));
+            // ✅ Normalize message to avoid HTML detection from Telex
+            $cleanText = trim(strip_tags($errorText));
+            $lower = strtolower($cleanText);
+
 
             // ✅ Friendly greeting detection
             $greetings = [
-                'hi', 'hello', 'hey', 'help', 'start', 
-                'good morning', 'good afternoon', 'good evening',
-                'what can you do', 'what are you', 'who are you',
+                'hi',
+                'hello',
+                'hey',
+                'help',
+                'start',
+                'good morning',
+                'good afternoon',
+                'good evening',
+                'what can you do',
+                'what are you',
+                'who are you',
                 'what are you configured to do'
             ];
 
             foreach ($greetings as $greet) {
                 if (str_contains($lower, $greet)) {
                     return response()->json([
-                        'message' => "👋 Hello! I am *ErrorFixer*.\n\n".
-                                     "Send me any code error and I'll:\n".
-                                     "• Detect the language\n".
-                                     "• Identify the error\n".
-                                     "• Explain the cause\n".
-                                     "• Provide the correct fix\n\n".
-                                     "Example:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```"
+                        'message' => "👋 Hello! I am *ErrorFixer*.\n\n" .
+                            "Send me any code error and I'll:\n" .
+                            "• Detect the language\n" .
+                            "• Identify the error\n" .
+                            "• Explain the cause\n" .
+                            "• Provide the correct fix\n\n" .
+                            "Example:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```"
                     ]);
                 }
             }
@@ -74,7 +84,6 @@ class ErrorFixController extends Controller
             }
 
             return response()->json($decoded);
-
         } catch (\Exception $e) {
             Log::error('ErrorFixController failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Unexpected server error. Try again.'], 500);
