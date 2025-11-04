@@ -50,10 +50,17 @@ class ErrorFixController extends Controller
                 'what are you configured to do'
             ];
 
+            // Check if the message is a greeting
+            $isGreeting = false;
             foreach ($greetings as $greet) {
-                if (str_contains($lower, $greet)) {
+                if (stripos($lower, $greet) !== false) {
+                    $isGreeting = true;
+                    break;
+                }
+            }
 
-                    $reply =
+            if ($isGreeting) {
+                $reply =
 "👋 Hello! I am *ErrorFixer*.
 
 Send me *any code error* and I will:
@@ -68,10 +75,9 @@ PHP Fatal error: Call to undefined method User::fullname()
 ```";
 
                    return $fromTelex
-                        ? response($reply, 200)
-                            ->header('Content-Type', 'text/plain')
-                        : response()->json(['message' => strip_tags($reply)], 200);
-                }
+                    ? response($reply, 200)
+                        ->header('Content-Type', 'text/plain')
+                    : response()->json(['message' => strip_tags($reply)], 200);
             }
 
             // ✅ Unsafe input protection
