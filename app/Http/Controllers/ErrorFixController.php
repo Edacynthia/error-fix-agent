@@ -5,17 +5,23 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\AI\ErrorFixAgent;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class ErrorFixController extends Controller
 {
-    // Max words allowed per request to avoid hitting Gemini MAX_TOKENS
-    protected int $maxWords = 9000; // adjust based on your Gemini model limit
+    protected int $maxWords = 9000; // Safe limit
 
     public function fix(Request $request)
     {
         try {
-            $errorText = $request->input('error', '');
+            /**
+             * ✅ Get message from both:
+             * - Telex → event.text
+             * - Postman → error
+             */
+            $errorText = $request->input('event.text', '');
+            if (trim($errorText) === '') {
+                $errorText = $request->input('error', '');
+            }
 
             // 1️⃣ Empty input
             if (trim($errorText) === '') {
@@ -32,59 +38,61 @@ class ErrorFixController extends Controller
             }
 
             // 3️⃣ Non-meaningful input
-            if ($this->isNonMeaningful($errorText)) {
-                return response()->json([
-                    'error' => 'Text is not meaningful. Provide a clear error message or code snippet.'
-                ], 422);
+            // 3️⃣ Friendly greeting or help requests
+            $lower = strtolower($errorText);
+            $greetings = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what are you', 'who are you', 'what are you configured to do', 'start'];
+
+            foreach ($greetings as $greet) {
+                if (str_contains($lower, $greet)) {
+                    return response()->json([
+                        'message' => "👋 Hello! I am *ErrorFixer*.\n\nPaste any code error and I will return:\n\n- Detected programming language\n- Error type\n- Clear explanation of the cause\n- Corrected code or step-by-step fix\n- Advice to avoid it again\n\nExample:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```\nJust send it to me — I will fix it 😄"
+                    ]);
+                }
             }
 
-            // 4️⃣ Truncate input if too large
+
+            // 4️⃣ Limit length
             $errorText = $this->truncateInput($errorText);
 
-            // 5️⃣ Call the AI agent
+            // 5️⃣ Send to AI agent
             $agent = new ErrorFixAgent();
             $result = $agent->classifyAndFix($errorText);
 
-            // 6️⃣ Check if AI returned an error message
+            // 6️⃣ Validate result
             $decoded = json_decode($result, true);
-            if ($decoded && isset($decoded['error'])) {
+
+            if (!$decoded) {
+                return response()->json([
+                    'error' => 'AI returned invalid JSON.'
+                ], 502);
+            }
+
+            if (isset($decoded['error'])) {
                 return response()->json([
                     'error' => $decoded['error']
                 ], 502);
             }
 
-            // 7️⃣ Check if AI returned empty text
-            if (empty(trim($result))) {
-                return response()->json([
-                    'error' => 'AI stopped early or returned no text. Try shorter input.'
-                ], 502);
-            }
-
-            // 8️⃣ Success
-           return response()->json(json_decode($result, true));
-
-
+            return response()->json($decoded);
         } catch (\Exception $e) {
             Log::error('ErrorFixController failed', ['error' => $e->getMessage()]);
+
             return response()->json([
                 'error' => 'Unexpected error occurred. Try again later.'
             ], 500);
         }
     }
 
-    /**
-     * Detect potentially dangerous code (basic sanitization)
-     */
     protected function containsMaliciousCode(string $text): bool
     {
         $patterns = [
-            '/<script.*?>.*?<\/script>/is',   // JS
-            '/<\?php.*?\?>/is',               // PHP
-            '/eval\s*\(.*\)/i',               // eval()
-            '/base64_decode\s*\(/i',          // base64 hacks
-            '/system\s*\(/i',                 // system commands
-            '/rm\s+-rf/i',                    // destructive shell commands
-            '/DROP\s+TABLE/i',                // SQL injection
+            '/<script.*?>.*?<\/script>/is',
+            '/<\?php.*?\?>/is',
+            '/eval\s*\(.*\)/i',
+            '/base64_decode\s*\(/i',
+            '/system\s*\(/i',
+            '/rm\s+-rf/i',
+            '/DROP\s+TABLE/i',
         ];
 
         foreach ($patterns as $pattern) {
@@ -96,18 +104,12 @@ class ErrorFixController extends Controller
         return false;
     }
 
-    /**
-     * Detect non-meaningful input
-     */
     protected function isNonMeaningful(string $text): bool
     {
         $clean = preg_replace('/[^\p{L}\p{N}]+/u', '', $text);
         return strlen($clean) < 3;
     }
 
-    /**
-     * Truncate input to avoid hitting MAX_TOKENS
-     */
     protected function truncateInput(string $text): string
     {
         $words = str_word_count($text, 2);
