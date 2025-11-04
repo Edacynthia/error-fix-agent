@@ -56,29 +56,25 @@ class ErrorFixAgent
     }
 
     protected function buildPrompt(string $errorText): string
-    {
-        return <<<PROMPT
-You are a professional software engineer. Analyze the following code error:
+{
+    return <<<PROMPT
+You must respond with **ONLY** valid JSON. 
+No explanations, no comments, no markdown, no surrounding text.
 
-1. Detect the programming language.
-2. Detect the type of error (syntax, runtime, missing package, etc.).
-3. Explain the cause in simple terms.
-4. Provide a step-by-step guide to fix it.
+Return output in this exact JSON structure:
 
-Return format exactly:
+{
+  "language": "Detected programming language",
+  "error_type": "Type of error (syntax, runtime, logic, etc.)",
+  "cause": "Short explanation of what caused the issue.",
+  "fix": "Corrected version of the code or config.",
+  "notes": "Advice to avoid the issue in the future."
+}
 
-**Language:** [language]
+If you cannot confidently detect language or fix, still return the JSON with best guess values.
 
-**Error Type:** [type]
+Now analyze this error:
 
-**Cause:** [simple explanation]
-
-**Fix Guide:**
-1. Step one
-2. Step two
-3. Step three
-
-Error:
 {$errorText}
 PROMPT;
     }
@@ -124,8 +120,14 @@ PROMPT;
         }
     }
 
-    protected function extractText(?array $json): ?string
-    {
-        return $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
-    }
+   protected function extractText(?array $json): ?string
+{
+    $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
+    if (!$text) return null;
+
+    // Remove surrounding ```json ... ``` or ``` ... ```
+    $text = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', trim($text));
+
+    return trim($text);
+}
 }

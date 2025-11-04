@@ -61,8 +61,8 @@ class ErrorFixController extends Controller
             }
 
             // 8️⃣ Success
-            return response($result)
-                ->header('Content-Type', 'text/plain');
+           return response()->json(json_decode($result, true));
+
 
         } catch (\Exception $e) {
             Log::error('ErrorFixController failed', ['error' => $e->getMessage()]);
