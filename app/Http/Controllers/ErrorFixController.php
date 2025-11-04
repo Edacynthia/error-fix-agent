@@ -13,76 +13,85 @@ class ErrorFixController extends Controller
     public function fix(Request $request)
     {
         try {
-            // Detect input source
-            $fromTelex = $request->has('event.text');
+            // ✅ Detect if request came from Telex
+            $fromTelex = $request->has('event');
 
-            // Get text from both possible sources
-            $errorText = $request->input('event.text', '') ?: $request->input('error', '') ?: $request->input('message', '');
+            // ✅ Correctly extract user text from any source
+            $errorText =
+                $request->input('event.message.text') ??
+                $request->input('event.text') ??
+                $request->input('text') ??
+                $request->input('error') ??
+                $request->input('message') ??
+                '';
 
-            if (trim($errorText) === '') {
+            $errorText = trim($errorText);
+
+            if ($errorText === '') {
                 return $fromTelex
-                    ? response("⚠️ Send an error message for me to analyze.", 200)
+                    ? response("⚠️ Send me an error message to analyze.", 200)
                     : response()->json(['error' => 'No error text provided.'], 400);
             }
 
+            // ✅ Normalize text to prevent false HTML detection
             $cleanText = trim(strip_tags($errorText));
             $lower = strtolower($cleanText);
 
-            // Greeting detection
+            // ✅ Greeting / help messages
             $greetings = [
-                'hi', 'hello', 'hey', 'help', 'start', 'good morning', 'good afternoon',
-                'good evening', 'what can you do', 'what are you', 'who are you',
+                'hi', 'hello', 'hey', 'help', 'start',
+                'good morning', 'good afternoon', 'good evening',
+                'what can you do', 'what are you', 'who are you', 'about you',
                 'what are you configured to do'
             ];
 
             foreach ($greetings as $greet) {
                 if (str_contains($lower, $greet)) {
 
-                    $textReply =
-                        "👋 Hello! I am **ErrorFixer**.\n\n" .
-                        "Send me any code error and I will:\n" .
+                    $reply =
+                        "👋 Hello! I am *ErrorFixer*.\n\n" .
+                        "Send me *any code error* and I will:\n" .
                         "• Detect the language\n" .
                         "• Identify the error\n" .
                         "• Explain the cause\n" .
                         "• Provide the correct fix\n\n" .
-                        "Try it now!";
+                        "Example:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```";
 
                     return $fromTelex
-                        ? response($textReply, 200)
-                        : response()->json(['message' => strip_tags($textReply)], 200);
+                        ? response($reply, 200)
+                        : response()->json(['message' => strip_tags($reply)], 200);
                 }
             }
 
-            // Reject unsafe input
-            if ($this->containsMaliciousCode($errorText)) {
+            // ✅ Block unsafe input
+            if ($this->containsMaliciousCode($cleanText)) {
                 return $fromTelex
-                    ? response("❌ Unsafe or malicious code detected. Try again.", 200)
+                    ? response("❌ Unsafe code detected. Try again.", 200)
                     : response()->json(['error' => 'Malicious content detected.'], 400);
             }
 
-            // Reject meaningless input
-            if ($this->isNonMeaningful($errorText)) {
+            // ✅ Reject garbage input
+            if ($this->isNonMeaningful($cleanText)) {
                 return $fromTelex
-                    ? response("⚠️ Please send a real code error or stack trace.", 200)
+                    ? response("⚠️ Please send a real error message.", 200)
                     : response()->json(['error' => 'Input too short or unclear.'], 422);
             }
 
-            // Limit extremely long messages
+            // ✅ Limit text length
             $errorText = $this->truncateInput($errorText);
 
-            // Process with AI agent
+            // ✅ Send to your AI agent
             $agent = new ErrorFixAgent();
             $result = $agent->classifyAndFix($errorText);
-
             $decoded = json_decode($result, true);
 
             if (!$decoded) {
                 return $fromTelex
-                    ? response("❗ I couldn't understand the error. Try again.", 200)
+                    ? response("❗ I couldn't understand the error.", 200)
                     : response()->json(['error' => 'Invalid AI response.'], 502);
             }
 
-            // ✅ If responding to Telex → Convert to human-readable text
+            // ✅ For Telex → Return human readable plain text
             if ($fromTelex) {
                 $plain =
                     "🧠 *Code Analysis*\n\n" .
@@ -95,13 +104,13 @@ class ErrorFixController extends Controller
                 return response($plain, 200);
             }
 
-            // ✅ If responding to Postman → Return clean JSON
+            // ✅ For Postman → Return JSON
             return response()->json($decoded, 200);
 
         } catch (\Exception $e) {
             Log::error('ErrorFixController failed', ['error' => $e->getMessage()]);
 
-            return $request->has('event.text')
+            return $fromTelex
                 ? response("❗ Server error. Try again later.", 200)
                 : response()->json(['error' => 'Server error.'], 500);
         }
