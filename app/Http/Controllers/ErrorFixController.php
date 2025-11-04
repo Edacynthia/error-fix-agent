@@ -8,78 +8,76 @@ use Illuminate\Support\Facades\Log;
 
 class ErrorFixController extends Controller
 {
-    protected int $maxWords = 9000; // Safe limit
+    protected int $maxWords = 9000;
 
     public function fix(Request $request)
     {
         try {
-            /**
-             * ✅ Get message from both:
-             * - Telex → event.text
-             * - Postman → error
-             */
-            $errorText = $request->input('event.text', '');
+            // ✅ Accept from Telex + manual tests
+            $errorText = $request->input('event.text', '') ?: $request->input('error', '');
+
+            // ✅ Empty
             if (trim($errorText) === '') {
-                $errorText = $request->input('error', '');
+                return response()->json(['error' => 'No error text provided.'], 400);
             }
 
-            // 1️⃣ Empty input
-            if (trim($errorText) === '') {
-                return response()->json([
-                    'error' => 'No error text provided.'
-                ], 400);
-            }
+            // ✅ Convert to lowercase
+            $lower = strtolower(trim($errorText));
 
-            // 2️⃣ Malicious input detection
-            if ($this->containsMaliciousCode($errorText)) {
-                return response()->json([
-                    'error' => 'Input contains unsafe or malicious content.'
-                ], 400);
-            }
-
-            // 3️⃣ Non-meaningful input
-            // 3️⃣ Friendly greeting or help requests
-            $lower = strtolower($errorText);
-            $greetings = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what are you', 'who are you', 'what are you configured to do', 'start'];
+            // ✅ Friendly greeting detection
+            $greetings = [
+                'hi', 'hello', 'hey', 'help', 'start', 
+                'good morning', 'good afternoon', 'good evening',
+                'what can you do', 'what are you', 'who are you',
+                'what are you configured to do'
+            ];
 
             foreach ($greetings as $greet) {
                 if (str_contains($lower, $greet)) {
                     return response()->json([
-                        'message' => "👋 Hello! I am *ErrorFixer*.\n\nPaste any code error and I will return:\n\n- Detected programming language\n- Error type\n- Clear explanation of the cause\n- Corrected code or step-by-step fix\n- Advice to avoid it again\n\nExample:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```\nJust send it to me — I will fix it 😄"
+                        'message' => "👋 Hello! I am *ErrorFixer*.\n\n".
+                                     "Send me any code error and I'll:\n".
+                                     "• Detect the language\n".
+                                     "• Identify the error\n".
+                                     "• Explain the cause\n".
+                                     "• Provide the correct fix\n\n".
+                                     "Example:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```"
                     ]);
                 }
             }
 
+            // ✅ Block malicious content
+            if ($this->containsMaliciousCode($errorText)) {
+                return response()->json(['error' => 'Input contains unsafe or malicious content.'], 400);
+            }
 
-            // 4️⃣ Limit length
+            // ✅ Avoid junk input
+            if ($this->isNonMeaningful($errorText)) {
+                return response()->json(['error' => 'Text is too short or unclear. Send an actual error.'], 422);
+            }
+
+            // ✅ Limit long text
             $errorText = $this->truncateInput($errorText);
 
-            // 5️⃣ Send to AI agent
+            // ✅ Send to AI
             $agent = new ErrorFixAgent();
             $result = $agent->classifyAndFix($errorText);
 
-            // 6️⃣ Validate result
             $decoded = json_decode($result, true);
 
             if (!$decoded) {
-                return response()->json([
-                    'error' => 'AI returned invalid JSON.'
-                ], 502);
+                return response()->json(['error' => 'AI returned invalid response.'], 502);
             }
 
             if (isset($decoded['error'])) {
-                return response()->json([
-                    'error' => $decoded['error']
-                ], 502);
+                return response()->json(['error' => $decoded['error']], 502);
             }
 
             return response()->json($decoded);
+
         } catch (\Exception $e) {
             Log::error('ErrorFixController failed', ['error' => $e->getMessage()]);
-
-            return response()->json([
-                'error' => 'Unexpected error occurred. Try again later.'
-            ], 500);
+            return response()->json(['error' => 'Unexpected server error. Try again.'], 500);
         }
     }
 
@@ -94,13 +92,9 @@ class ErrorFixController extends Controller
             '/rm\s+-rf/i',
             '/DROP\s+TABLE/i',
         ];
-
         foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $text)) {
-                return true;
-            }
+            if (preg_match($pattern, $text)) return true;
         }
-
         return false;
     }
 
