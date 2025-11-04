@@ -13,16 +13,20 @@ class ErrorFixController extends Controller
     public function fix(Request $request)
     {
         try {
-            // ✅ Detect if request came from Telex
-            $fromTelex = $request->has('event');
 
-            // ✅ Correctly extract user text from any source
+            // ✅ Detect if request came from Telex (very reliable)
+            $fromTelex = $request->hasHeader('X-Telex-Event') 
+                        || $request->has('event') 
+                        || $request->input('event.message.text');
+
+            // ✅ Correctly extract user text no matter the format
             $errorText =
                 $request->input('event.message.text') ??
                 $request->input('event.text') ??
                 $request->input('text') ??
                 $request->input('error') ??
                 $request->input('message') ??
+                $request->getContent() ??
                 '';
 
             $errorText = trim($errorText);
@@ -33,11 +37,11 @@ class ErrorFixController extends Controller
                     : response()->json(['error' => 'No error text provided.'], 400);
             }
 
-            // ✅ Normalize text to prevent false HTML detection
+            // ✅ Normalize for logic checks
             $cleanText = trim(strip_tags($errorText));
             $lower = strtolower($cleanText);
 
-            // ✅ Greeting / help messages
+            // ✅ Greetings / Assistant Intro
             $greetings = [
                 'hi', 'hello', 'hey', 'help', 'start',
                 'good morning', 'good afternoon', 'good evening',
@@ -49,13 +53,18 @@ class ErrorFixController extends Controller
                 if (str_contains($lower, $greet)) {
 
                     $reply =
-                        "👋 Hello! I am *ErrorFixer*.\n\n" .
-                        "Send me *any code error* and I will:\n" .
-                        "• Detect the language\n" .
-                        "• Identify the error\n" .
-                        "• Explain the cause\n" .
-                        "• Provide the correct fix\n\n" .
-                        "Example:\n```\nPHP Fatal error: Call to undefined method User::fullname()\n```";
+"👋 Hello! I am *ErrorFixer*.
+
+Send me *any code error* and I will:
+• Detect the language
+• Identify the error
+• Explain the cause
+• Provide the correct fix
+
+Example:
+```
+PHP Fatal error: Call to undefined method User::fullname()
+```";
 
                     return $fromTelex
                         ? response($reply, 200)
@@ -63,24 +72,24 @@ class ErrorFixController extends Controller
                 }
             }
 
-            // ✅ Block unsafe input
+            // ✅ Unsafe input protection
             if ($this->containsMaliciousCode($cleanText)) {
                 return $fromTelex
                     ? response("❌ Unsafe code detected. Try again.", 200)
                     : response()->json(['error' => 'Malicious content detected.'], 400);
             }
 
-            // ✅ Reject garbage input
+            // ✅ Reject gibberish
             if ($this->isNonMeaningful($cleanText)) {
                 return $fromTelex
                     ? response("⚠️ Please send a real error message.", 200)
                     : response()->json(['error' => 'Input too short or unclear.'], 422);
             }
 
-            // ✅ Limit text length
+            // ✅ Limit overly long messages
             $errorText = $this->truncateInput($errorText);
 
-            // ✅ Send to your AI agent
+            // ✅ Send to AI Agent
             $agent = new ErrorFixAgent();
             $result = $agent->classifyAndFix($errorText);
             $decoded = json_decode($result, true);
@@ -91,20 +100,27 @@ class ErrorFixController extends Controller
                     : response()->json(['error' => 'Invalid AI response.'], 502);
             }
 
-            // ✅ For Telex → Return human readable plain text
+            // ✅ Return text for Telex
             if ($fromTelex) {
                 $plain =
-                    "🧠 *Code Analysis*\n\n" .
-                    "🔹 Language: " . ($decoded['language'] ?? 'Unknown') . "\n" .
-                    "🔹 Error Type: " . ($decoded['error_type'] ?? 'Unknown') . "\n\n" .
-                    "💡 Cause:\n" . ($decoded['cause'] ?? 'Not available') . "\n\n" .
-                    "🔧 Fix:\n" . ($decoded['fix'] ?? 'Not provided') . "\n\n" .
-                    "📌 Notes: " . ($decoded['notes'] ?? 'None');
+"🧠 *Code Analysis*
+
+🔹 Language: {$decoded['language']}
+🔹 Error Type: {$decoded['error_type']}
+
+💡 Cause:
+{$decoded['cause']}
+
+🔧 Fix:
+{$decoded['fix']}
+
+📌 Notes:
+{$decoded['notes']}";
 
                 return response($plain, 200);
             }
 
-            // ✅ For Postman → Return JSON
+            // ✅ Postman gets JSON
             return response()->json($decoded, 200);
 
         } catch (\Exception $e) {
